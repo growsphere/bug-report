@@ -1,66 +1,69 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Bug Report
+## Project Setup
+* Laravel 12.2.0
+* sqlite 3.37.2
+* php 8.2.27
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This project is a fresh installation of laravel (using the installer as requested with `laravel new bug-report --github="--public"`) 
+Only the `bootstrap/app.php` has been modified to contain one scheduled event,
+and the following classes - needed to demonstrate the issues - have been added.
+* [SayHelloCommand.php](app/Console/Commands/SayHelloCommand.php)
+* [ClassToBeInjected.php](app/BugReport/ClassToBeInjected.php)
+* [ScheduleTest.php](tests/Feature/ScheduleTest.php)
+* [SayHelloCommandTest.php](tests/Feature/SayHelloCommandTest.php)
 
-## About Laravel
+## Issues
+There seem to be substantial differences in the application when the context is a single phpunit test (or the first test
+of many when ran together) and the subsequent tests. This is most likely due to the way the application is bootstrapped and/or
+reset between tests.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Issue 1: Schedule is not instantiated correctly after the first test.
+There are two tests in the ScheduleTest.php file, but their content is identical.
+All the tests do is get the Schedule from the app and assert that the count of the events is 1.
+```
+    $schedule = app(Schedule::class);
+    $events = $schedule->events();
+    $this->assertCount(1, $events);
+```
+In the bootstrap/app.php file, the Schedule is configured with one simple Hello World event.
+```
+    ->withSchedule(function (Schedule $schedule) {
+        $schedule->call(function () {
+            logger()->info('Hello World');
+        })->hourly();
+    })
+```
+**Current test behavior:**
+* When run in isolation, both tests pass.
+* When run together, the second test fails.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Issue 2: Calling an artisan command breaks mocking dependencies for tests.
+This issue shows itself in more complex ways. The SayHelloCommandTest serves as a good example.
+Here, again we have two identical tests. They call a simple command that uses dependency injection.
+```
+    // SayHelloCommand constructor
+    public function __construct(protected ClassToBeInjected $injected)
+    {
+        parent::__construct();
+    }
+```
+This dependency is mocked in the tests.
+As it is now, both tests succeed when run together or in isolation. But changing the following lines leads to issues:
+* In `SayHelloCommandTest.php`, uncomment the line that calls `$this->artisan('inspire');` in the setUp() method.
 
-## Learning Laravel
+  -> both tests fail (together or isolated), because they are not instantiated with the mock.
+* In `SayHelloCommandTest.php`, uncomment the line that calls  `$this->seed()` the setUp() method.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+  AND change `RefreshDatabase` to `LazilyRefreshDatabase` in the `tests/TestCase.php` Class.
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+  -> only the second test running fails, because only the second test is not instantiated with the mock.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-## Laravel Sponsors
+## Expected behavior
+* Application Classes like the Schedule should behave the same in all tests, regardless of the order they are run in.
+* Calling artisan commands within tests should not break the subsequent instantiation of mocks.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
-
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Further comments.
+The second test in ScheduleTest.php **also fails** if the first test only asserts `assertTrue(true)`. The issue seems to be related to the
+fact that the second test is run after the first one. Something is not being reset correctly between tests somewhere in tearDown().
